@@ -20,3 +20,9 @@ class AsyncIrcClientProtocol(Protocol):
 
     async def send(self, message: str) -> None:
         """Sends a message to the IRC server"""
+
+    async def set_user(self, user_name: str) -> None:
+        """Sets the name of the user client"""
+
+    async def set_nick(self, nick_name: str) -> None:
+        """Sets the nickname of the client user"""

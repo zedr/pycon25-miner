@@ -1,15 +1,39 @@
 #!/usr/bin/env python3
-
 import asyncio
+import argparse
 
 
 class IrcClient:
-    pass
+    async def connect(
+            self, server_host: str = "127.1", server_port: int = 6667
+    ) -> None:
+        """Connect to an IRC server"""
+        self.reader, self.writer = await asyncio.open_connection(
+            server_host, server_port
+        )
+
+    async def disconnect(self) -> None:
+        """Disconnect from the IRC server"""
+        self.writer.close()
+        await self.writer.wait_closed()
+
+    async def send(self, message: str) -> None:
+        """Send a message to the server"""
+        self.writer.write(message.encode() + b"\r\n")
+        await self.writer.drain()
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--host",
+        default="localhost",
+        help="IRC server host to connect to"
+    )
+    args = parser.parse_args()
     client = IrcClient()
-    await client.connect()
+    await client.connect(server_host=args.host)
+    await client.send("INFO")
     await client.disconnect()
 
 
