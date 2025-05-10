@@ -7,6 +7,7 @@
 
 !cheat/
 !cheat/irc_client.py
+!cheat/miner.py
 
 !lint.sh
 !test.sh
