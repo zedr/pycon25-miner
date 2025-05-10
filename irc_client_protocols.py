@@ -1,5 +1,8 @@
 from asyncio import StreamWriter, StreamReader
 from typing import Protocol
+from typing import Callable, Sequence, Awaitable, Optional
+
+IrcMessageHandler = Callable[[str, str, list[str]], Awaitable[Optional[bool]]]
 
 
 class AsyncIrcClientProtocol(Protocol):
@@ -32,3 +35,9 @@ class AsyncIrcClientProtocol(Protocol):
 
     async def send_message(self, channel_name: str, message: str) -> None:
         """Sends a message to the given channel"""
+
+    async def handle_forever(
+            self,
+            handlers: Sequence[IrcMessageHandler] = (),
+    ) -> None:
+        """Handle an incoming message from the server"""

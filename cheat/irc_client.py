@@ -30,6 +30,14 @@ class IrcClient:
         """Set the user identity of the client"""
         await self.send(f"USER {user_name} 0 * :{user_name}")
 
+    async def join_channel(self, channel_name: str) -> None:
+        """Join a channel"""
+        await self.send(f"JOIN #{channel_name}")
+
+    async def send_message(self, channel_name: str, message: str) -> None:
+        """Send a message to the given channel"""
+        await self.send(f"PRIVMSG #{channel_name} :{message}")
+
 
 async def main():
     parser = argparse.ArgumentParser()
@@ -42,13 +50,24 @@ async def main():
         default="localhost",
         help="IRC server host to connect to"
     )
+    parser.add_argument(
+        "-c",
+        "--channel",
+        default="pycon",
+        help="IRC channel to join"
+    )
     args = parser.parse_args()
     client = IrcClient()
     await client.connect(server_host=args.host)
     await client.set_user(args.NAME)
     await client.set_nick(args.NAME)
+    await client.join_channel(args.channel)
+    await client.send_message(args.channel, "HELLO")
     await client.disconnect()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

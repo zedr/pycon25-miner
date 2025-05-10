@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from typing import Final
 
-from irc_client import IrcClient
+from irc_client import IrcClient, echo
 
 
 class FakeIrcServer:
@@ -77,6 +77,14 @@ class IrcClientTests(unittest.IsolatedAsyncioTestCase):
             [b"PRIVMSG #pycon :hello, world\r\n"],
             self._irc_server.messages
         )
+
+    async def test_echo_handler(self):
+        output = await echo(
+            ":zedr_!zedr@192.168.1.67",
+            "PRIVMSG",
+            ['#pycon', ':hi']
+        )
+        self.assertIsNone(output)
 
 
 if __name__ == "__main__":
