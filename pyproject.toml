@@ -1,0 +1,12 @@
+[project]
+name = "pycon25-cryptominer"
+version = "0.1.0"
+description = "The codebase for the PyCon Italia 25 cryptominer workshop"
+authors = [{ name = "Rigel Di Scala", email = "zedr@zedr.com" }]
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pyright"
+]
