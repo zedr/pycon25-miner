@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import asyncio
 import argparse
+import logging
+from typing import Callable, Sequence, Awaitable, Optional
 
 
 class IrcClient:
@@ -38,8 +40,32 @@ class IrcClient:
         """Send a message to the given channel"""
         await self.send(f"PRIVMSG #{channel_name} :{message}")
 
+    async def handle_forever(
+            self,
+            handlers: Sequence[
+                Callable[[str, str, list[str]], Awaitable[Optional[bool]]]
+            ] = (),
+    ) -> None:
+        """Handle an incoming message from the server"""
+        while True:
+            line = await self.reader.readline()
+            if line:
+                message = line.decode().strip()
+                source, cmd, *words = message.split(" ")
+                for handler in handlers:
+                    await handler(source, cmd, words)
+
+    @staticmethod
+    async def echo(src: str, cmd: str, msgs: list[str]) -> None:
+        logging.info("%s", (src, cmd, msgs))
+
+
+# Alias as a function for importing in tests
+echo = IrcClient.echo
+
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "NAME",
@@ -63,7 +89,10 @@ async def main():
     await client.set_nick(args.NAME)
     await client.join_channel(args.channel)
     await client.send_message(args.channel, "HELLO")
-    await client.disconnect()
+    try:
+        await client.handle_forever(handlers=(client.echo,))
+    finally:
+        await client.disconnect()
 
 
 if __name__ == "__main__":
