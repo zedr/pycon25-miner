@@ -17,3 +17,6 @@ class AsyncIrcClientProtocol(Protocol):
 
     async def disconnect(self) -> None:
         """Disconnects from an IRC server."""
+
+    async def send(self, message: str) -> None:
+        """Sends a message to the IRC server"""

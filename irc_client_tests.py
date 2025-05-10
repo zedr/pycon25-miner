@@ -50,6 +50,11 @@ class IrcClientTests(unittest.IsolatedAsyncioTestCase):
         """The client can connect to the server"""
         self.assertFalse(self.client.writer.transport.is_closing())
 
+    async def test_client_sending_message(self):
+        await self.client.send("INFO")
+        await self._irc_server.received.wait()
+        self.assertEqual([b"INFO\r\n"], self._irc_server.messages)
+
 
 if __name__ == "__main__":
     unittest.main(warnings="ignore")
