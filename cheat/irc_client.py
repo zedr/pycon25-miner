@@ -22,9 +22,21 @@ class IrcClient:
         self.writer.write(message.encode() + b"\r\n")
         await self.writer.drain()
 
+    async def set_nick(self, nick_name: str) -> None:
+        """Set the nick of the client"""
+        await self.send(f"NICK {nick_name}")
+
+    async def set_user(self, user_name: str) -> None:
+        """Set the user identity of the client"""
+        await self.send(f"USER {user_name} 0 * :{user_name}")
+
 
 async def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "NAME",
+        help="The user and nickname",
+    )
     parser.add_argument(
         "--host",
         default="localhost",
@@ -33,7 +45,8 @@ async def main():
     args = parser.parse_args()
     client = IrcClient()
     await client.connect(server_host=args.host)
-    await client.send("INFO")
+    await client.set_user(args.NAME)
+    await client.set_nick(args.NAME)
     await client.disconnect()
 
 

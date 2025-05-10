@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import asyncio
 import unittest
 from typing import Final
@@ -55,15 +54,29 @@ class IrcClientTests(unittest.IsolatedAsyncioTestCase):
         await self._irc_server.received.wait()
         self.assertEqual([b"PING\r\n"], self._irc_server.messages)
 
-    async def test_client_set_user(self):
-        await self.client.set_user("zedr")
-        await self._irc_server.received.wait()
-        self.assertEqual([b"USER zedr 0 * :zedr\r\n"], self._irc_server.messages)
-
     async def test_client_set_nick(self):
         await self.client.set_nick("zedr")
         await self._irc_server.received.wait()
         self.assertEqual([b"NICK zedr\r\n"], self._irc_server.messages)
+
+    async def test_client_set_user(self):
+        await self.client.set_user("zedr")
+        await self._irc_server.received.wait()
+        self.assertEqual([b"USER zedr 0 * :zedr\r\n"],
+                         self._irc_server.messages)
+
+    async def test_client_join_channel(self):
+        await self.client.join_channel("pycon")
+        await self._irc_server.received.wait()
+        self.assertEqual([b"JOIN #pycon\r\n"], self._irc_server.messages)
+
+    async def test_client_send_message(self):
+        await self.client.send_message("pycon", "hello, world")
+        await self._irc_server.received.wait()
+        self.assertEqual(
+            [b"PRIVMSG #pycon :hello, world\r\n"],
+            self._irc_server.messages
+        )
 
 
 if __name__ == "__main__":

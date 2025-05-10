@@ -27,5 +27,7 @@
     podman run -p6667:6667 --name ircd -d -t docker.io/zedr77/pycon25-ircd
     ```
 
-    
-
+ 2. Join the server by running the [irc_client.py](irc_client.py) script:
+    ```bash
+    ./irc_client.py satoshi
+    ```
