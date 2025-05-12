@@ -53,22 +53,11 @@ class IrcClient:
                 message = line.decode().strip()
                 source, cmd, *words = message.split(" ")
                 for handler in handlers:
-                    should_short_circuit = await handler(source, cmd, words)
-                    if should_short_circuit is True:
-                        break
+                    await handler(source, cmd, words)
 
     @staticmethod
     async def echo(src: str, cmd: str, msgs: list[str]) -> None:
-        logging.debug("%s", (src, cmd, msgs))
-
-    async def handle_ping(self, src: str, *args) -> bool:
-        """Handle PING requests"""
-        if src == "PING":
-            await self.send("PONG")
-            logging.info("Received PING, sent PONG")
-            return True
-        else:
-            return False
+        logging.info("%s", (src, cmd, msgs))
 
 
 # Alias as a function for importing in tests
