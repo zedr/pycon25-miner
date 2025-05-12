@@ -57,7 +57,7 @@ class IrcClient:
 
     @staticmethod
     async def echo(src: str, cmd: str, msgs: list[str]) -> None:
-        logging.info("%s", (src, cmd, msgs))
+        logging.debug("%s", (src, cmd, msgs))
 
 
 # Alias as a function for importing in tests
