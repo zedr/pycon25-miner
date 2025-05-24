@@ -157,6 +157,15 @@ class Database:
         self._conn.commit()
         return True
 
+    def get_scores(self):
+        cur = self._conn.execute(
+            """
+            SELECT user_nick, COUNT(user_nick) FROM awards
+            """
+        )
+        for tup in cur.fetchall():
+            yield tup
+
 
 class Game:
     def __init__(self, db: Database, difficulty: int):
@@ -181,6 +190,10 @@ class Game:
                      nonce: int) -> bool:
         """Award a successful mined transaction to a user"""
         return self.db.create_award(user_nick, message_id, nonce)
+
+    def get_scores(self):
+        """Get the scores for each user"""
+        yield from self.db.get_scores()
 
 
 class Broadcaster(IrcClient):
@@ -272,6 +285,13 @@ async def cli(client: Broadcaster) -> None:
                         # List transactions
                         for tr in client.game.get_transactions():
                             print(tr.message_id)
+                    case "hs":
+                        # Hi score
+                        for pos, (name, score) in enumerate(
+                                client.game.get_scores(),
+                                1
+                        ):
+                            print(f"{pos}. {name}: {score}")
                     case "q":
                         break
                     case "pd":
@@ -284,6 +304,10 @@ async def cli(client: Broadcaster) -> None:
                             print(f"!!! Bad command: {line}")
                         else:
                             client.game.difficulty = new_difficulty
+                            await client.send_message(
+                                client.channel,
+                                f"The difficulty is now {client.game.difficulty}"
+                            )
                     case _:
                         print("!!! Unknown command")
     print("<<< quitting")
