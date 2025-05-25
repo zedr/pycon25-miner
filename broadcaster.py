@@ -36,6 +36,7 @@ def generate_random_message() -> str:
 @dataclass
 class Transaction:
     """A transaction message"""
+
     id: Optional[int]
     message_id: str
     difficulty: int
@@ -51,18 +52,93 @@ class Transaction:
             id=None,
             message_id=uuid.uuid4().hex[:8],
             difficulty=difficulty,
-            message=generate_random_message()
+            message=generate_random_message(),
         )
 
 
-class Database:
-    """A SQLite database"""
+class RateLimitDatabase:
+    """An in-memory SQLite database for rate limiting requests"""
+
+    seconds_between_requests: int = 5
+
+    def __init__(self):
+        self._conn = sqlite3.connect(":memory:")
+        self._setup()
+
+    def _setup(self) -> None:
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                user_nick TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS index_user_nick ON attempts (user_nick)
+            """,
+        ]
+        for stmt in statements:
+            self._conn.execute(stmt)
+        self._conn.commit()
+
+    def check(self, user_nick: str) -> bool:
+        """Check and update the last time the user made an attempt.
+
+        Returns True if the user is allowed to make a request,
+        False if they are rate limited.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+                    SELECT id, updated_at FROM attempts
+                    WHERE user_nick = ?
+                """,
+            (user_nick,),
+        )
+        row = cur.fetchone()
+
+        now = dt.datetime.now(tz=dt.timezone.utc)
+
+        if row:
+            uid, val = row
+            last_attempt = dt.datetime.strptime(val, "%Y-%m-%d %H:%M:%S")
+            last_attempt = last_attempt.replace(tzinfo=dt.timezone.utc)
+            delta = (now - last_attempt).total_seconds()
+            if delta < self.seconds_between_requests:
+                return False  # Too soon
+
+            # Update the timestamp of the existing row
+            cur.execute(
+                """
+                    UPDATE attempts
+                    SET updated_at = ?
+                    WHERE id = ?
+                    """,
+                (now.strftime("%Y-%m-%d %H:%M:%S"), uid),
+            )
+        else:
+            # Insert new attempt if none exists
+            cur.execute(
+                """
+                    INSERT INTO attempts (user_nick)
+                    VALUES (?)
+                    """,
+                (user_nick,),
+            )
+
+        self._conn.commit()
+        return True
+
+
+class TransactionDatabase:
+    """A SQLite database for transactions and related awards"""
 
     def __init__(self, name: str = ":memory:"):
         self._conn = sqlite3.connect(name)
         self._setup()
 
-    def _setup(self):
+    def _setup(self) -> None:
         """Set up the database where necessary"""
         statements = """
             CREATE TABLE IF NOT EXISTS transactions (
@@ -79,7 +155,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                 user_nick TEXT NOT NULL,
                 transaction_id INTEGER NOT NULL,
-                nonce INTEGER NOT NULL UNIQUE,
+                nonce INTEGER NOT NULL,
                 FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE NO ACTION
             )
             
@@ -97,13 +173,12 @@ class Database:
             INSERT INTO transactions (message_id, difficulty, message)
             VALUES (?, ?, ?)
             """,
-            (tr.message_id, tr.difficulty, tr.message)
+            (tr.message_id, tr.difficulty, tr.message),
         )
         self._conn.commit()
 
     def get_transactions(
-            self,
-            message_id: str = None
+        self, message_id: str = None
     ) -> Generator[Transaction, None, None]:
         stmt = """
         SELECT * FROM transactions
@@ -123,20 +198,14 @@ class Database:
     def check_award_exists(self, transaction: Transaction) -> bool:
         """Check if this transaction has already been mined and awarded"""
         cur = self._conn.execute(
-            "SELECT * FROM awards WHERE transaction_id = ?",
-            (transaction.id,)
+            "SELECT * FROM awards WHERE transaction_id = ?", (transaction.id,)
         )
         if cur.fetchone():
             return True
         else:
             return False
 
-    def create_award(
-            self,
-            user_nick: str,
-            message_id: str,
-            nonce: int
-    ) -> bool:
+    def create_award(self, user_nick: str, message_id: str, nonce: int) -> bool:
         """Add a transaction to the database"""
         tr = self.get_transaction(message_id)
         if not tr:
@@ -152,7 +221,7 @@ class Database:
             INSERT INTO awards (user_nick, transaction_id, nonce)
             VALUES (?, ?, ?)
             """,
-            (user_nick, tr.id, nonce)
+            (user_nick, tr.id, nonce),
         )
         self._conn.commit()
         return True
@@ -160,7 +229,7 @@ class Database:
     def get_scores(self):
         cur = self._conn.execute(
             """
-            SELECT user_nick, COUNT(user_nick) FROM awards
+            SELECT user_nick, COUNT(user_nick) FROM awards GROUP BY user_nick
             """
         )
         for tup in cur.fetchall():
@@ -168,7 +237,7 @@ class Database:
 
 
 class Game:
-    def __init__(self, db: Database, difficulty: int):
+    def __init__(self, db: TransactionDatabase, difficulty: int):
         self.db = db
         self.difficulty = difficulty
 
@@ -186,8 +255,7 @@ class Game:
         """Get a transaction with a given message_id"""
         return self.db.get_transaction(message_id)
 
-    def create_award(self, user_nick: str, message_id: str,
-                     nonce: int) -> bool:
+    def create_award(self, user_nick: str, message_id: str, nonce: int) -> bool:
         """Award a successful mined transaction to a user"""
         return self.db.create_award(user_nick, message_id, nonce)
 
@@ -202,7 +270,12 @@ class Broadcaster(IrcClient):
     def __init__(self, db_name: str = ":memory:", difficulty: int = 0):
         super().__init__()
         self.channel = "pycon"
-        self.game = Game(db=Database(db_name), difficulty=difficulty)
+        self.game = Game(db=TransactionDatabase(db_name), difficulty=difficulty)
+        self.attempt_database = RateLimitDatabase()
+
+    async def send_user_message(self, user_nick: str, message: str) -> None:
+        """Send a message to the given channel"""
+        await self.send(f"PRIVMSG {user_nick} :{message}")
 
     async def process_inv(self, user_nick: str, msg: str) -> None:
         """Process the INV message"""
@@ -222,8 +295,7 @@ class Broadcaster(IrcClient):
                         await self.send_message(self.channel, msg)
                 else:
                     logging.info(
-                        "%s failed nonce validation for %s",
-                        user_nick, message_id
+                        "%s failed nonce validation for %s", user_nick, message_id
                     )
 
     async def process(self, src: str, cmd: str, msgs: list[str]) -> None:
@@ -234,10 +306,13 @@ class Broadcaster(IrcClient):
                 src_match = src_rxp.match(src)
                 if src_match:
                     user_nick = src_match.group(1)
-                    await self.process_inv(user_nick, msg)
+                    if self.attempt_database.check(user_nick):
+                        await self.process_inv(user_nick, msg)
+                    else:
+                        await self.send_user_message(user_nick, "Observe speed limit!")
 
 
-async def async_input(prompt: str = '') -> str:
+async def async_input(prompt: str = "") -> str:
     """
     Asynchronous wrapper around the built-in input function.
     """
@@ -265,87 +340,80 @@ async def cli(client: Broadcaster) -> None:
         except (EOFError, KeyboardInterrupt):
             print()
             break
-        else:
-            matched = line_rxp.match(line)
-            if matched:
-                cmd, *args = matched.groups()
-                match cmd:
-                    case "ct":
-                        # Create transaction
-                        tr = client.game.create_transaction()
+
+        if matched := line_rxp.match(line):
+            cmd, *args = matched.groups()
+            match cmd:
+                case "ct":
+                    # Create transaction
+                    tr = client.game.create_transaction()
+                    await client.send_message(client.channel, str(tr))
+                    print(f"Created {tr.message_id} with difficulty {tr.difficulty}")
+                case "lt":
+                    # List transactions
+                    for tr in client.game.get_transactions():
+                        print(tr.message_id)
+                case "ls":
+                    # List scores
+                    scores = client.game.get_scores()
+                    for pos, (name, score) in enumerate(scores, 1):
+                        print(f"{pos}. {name}: {score}")
+                case "q":
+                    break
+                case "pd":
+                    # Print game difficulty
+                    print(client.game.difficulty)
+                case "cd":
+                    # Communicate game difficulty
+                    await client.send_message(
+                        client.channel,
+                        f"The current difficulty is {client.game.difficulty}",
+                    )
+                case "pt":
+                    # Print transaction
+                    message_id = args[0]
+                    tr = client.game.get_transaction(message_id)
+                    print(tr)
+                case "ct":
+                    # Communicate transaction
+                    message_id = args[0]
+                    tr = client.game.get_transaction(message_id)
+                    await client.send_message(client.channel, str(tr))
+                case "sd":
+                    # Set difficulty
+                    try:
+                        new_difficulty = int(args[0])
+                    except (ValueError, IndexError):
+                        print(f"!!! Bad command: {line}")
+                    else:
+                        client.game.difficulty = new_difficulty
                         await client.send_message(
                             client.channel,
-                            str(tr)
+                            f"The difficulty is now {client.game.difficulty}",
                         )
-                        print(
-                            f"Created {tr.message_id} "
-                            f"with difficulty {tr.difficulty}"
-                        )
-                    case "lt":
-                        # List transactions
-                        for tr in client.game.get_transactions():
-                            print(tr.message_id)
-                    case "hs":
-                        # Hi score
-                        for pos, (name, score) in enumerate(
-                                client.game.get_scores(),
-                                1
-                        ):
-                            print(f"{pos}. {name}: {score}")
-                    case "q":
-                        break
-                    case "pd":
-                        print(client.game.difficulty)
-                    case "sd":
-                        # Set difficulty
-                        try:
-                            new_difficulty = int(args[0])
-                        except (ValueError, IndexError):
-                            print(f"!!! Bad command: {line}")
-                        else:
-                            client.game.difficulty = new_difficulty
-                            await client.send_message(
-                                client.channel,
-                                f"The difficulty is now {client.game.difficulty}"
-                            )
-                    case _:
-                        print("!!! Unknown command")
-    print("<<< quitting")
+                case _:
+                    print("!!! Unknown command")
+    print("Quitting...")
     cancel_other_tasks()
 
 
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--host",
-        default="localhost",
-        help="IRC server host to connect to"
+        "--host", default="localhost", help="IRC server host to connect to"
     )
-    parser.add_argument(
-        "-c",
-        "--channel",
-        default="pycon",
-        help="IRC channel to join"
-    )
+    parser.add_argument("-c", "--channel", default="pycon", help="IRC channel to join")
     parser.add_argument(
         "-d",
         "--database",
         default=":memory:",
-        help="SQLite database file or memory namespace to use"
+        help="SQLite database file or memory namespace to use",
     )
     parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Be verbose"
+        "-v", "--verbose", action="store_true", default=False, help="Be verbose"
     )
     parser.add_argument(
-        "-D",
-        "--difficulty",
-        default=1,
-        type=int,
-        help="Starting difficulty to use"
+        "-D", "--difficulty", default=1, type=int, help="Starting difficulty to use"
     )
     args = parser.parse_args()
     if args.verbose:
@@ -360,14 +428,12 @@ async def main():
     try:
         await asyncio.gather(
             client.handle_forever(
-                handlers=(
-                    client.handle_ping,
-                    client.process,
-                    client.echo
-                )
+                handlers=(client.handle_ping, client.process, client.echo)
             ),
-            cli(client, ),
-            return_exceptions=False
+            cli(
+                client,
+            ),
+            return_exceptions=False,
         )
     except asyncio.CancelledError:
         await client.disconnect()

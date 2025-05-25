@@ -1,10 +1,14 @@
 *
 !.gitignore
 
+!irc_client.py
 !irc_client_protocols.py
 !irc_client_tests.py
+!miner.py
+!myclient.py
 !miner_tests.py
 !broadcaster.py
+!broadcaster_tests.py
 
 !cheat/
 !cheat/irc_client.py
