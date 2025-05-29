@@ -4,6 +4,9 @@
 # Requirements
  - Python 3.10 or better
 
+# Workshop slides
+See the [slides.pdf](slides.pdf) file.
+
 # Installation
  1. Create a virtual environment local to this repo
     ```bash
